@@ -6,29 +6,29 @@
 #include <atomic>
 #include <iostream>
 #include <fstream>
+#include <memory>
+#include <thread>
+#include <cstdlib>
+#include <cstring>
+#include <atomic>
+
+#include "RecordData.hpp"
+#include "../SavingWorkers/ISavingWorker.hpp"
 
 class AudioRecorder {
 public:
-    AudioRecorder();
+    AudioRecorder(std::shared_ptr<ISavingWorker> saving_worker);
     ~AudioRecorder();
 
-    bool initialize();
-    bool startRecording();
-    bool stopRecording();
-    bool saveToFile(const std::string& filename = "recorded_audio.wav");
-    bool isRecording() const { return m_isRecording; }
-    size_t getRecordedSamples() const { return m_audioData.size(); }
-
+    void Record(unsigned int time);
+    bool SaveData();
 private:
-    static int audioCallback(void* outputBuffer, void* inputBuffer,
-                           unsigned int nFrames, double streamTime,
-                           RtAudioStreamStatus status, void* userData);
+    RecordData _record_data;
+    RtAudio _audio;
+    RtAudio::StreamParameters _parameters;
+    std::shared_ptr<ISavingWorker> _saving_worker;
+    std::vector<int16_t> _audio_data;
+    std::atomic<bool> _is_recording;
+    unsigned int _buffer_frames;
 
-    bool writeWavFile(const std::string& filename);
-
-    RtAudio m_audio;
-    std::vector<int16_t> m_audioData;
-    std::atomic<bool> m_isRecording;
-    unsigned int m_sampleRate;
-    unsigned int m_bufferFrames;
 };

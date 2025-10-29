@@ -1,4 +1,6 @@
 #pragma once
+#include <vector>
+#include <atomic>
 
 struct RecordData {
     std::vector<int16_t> audioData;

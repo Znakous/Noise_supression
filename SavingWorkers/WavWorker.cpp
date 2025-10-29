@@ -2,14 +2,8 @@
 #include "sndfile.h"
 #include <iostream>
 
-WavWorker::WavWorker(const std::vector<int16_t> &audioData, const std::string &filename, unsigned int sampleRate) {
-    _sampleRate = sampleRate;
-    _audioData = audioData.data();
-    _filename = filename;
-    _audioDataSize = audioData.size();
-}
-
 bool WavWorker::Save() {
+    if (!_setter_called) {throw SavingWorkerException("Sample rate must be specified");}
     if (_audioDataSize == 0) {
         std::cout << "No audio data to save!" << std::endl;
         return false;

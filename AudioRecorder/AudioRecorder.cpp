@@ -1,152 +1,220 @@
+#include "RtAudio.h"
 #include "AudioRecorder.hpp"
+
 #include <cstring>
 
-AudioRecorder::AudioRecorder()
-    : m_isRecording(false)
-    , m_sampleRate(44100)
-    , m_bufferFrames(512) {
-}
-
-AudioRecorder::~AudioRecorder() {
-    if (m_audio.isStreamOpen()) {
-        m_audio.closeStream();
-    }
-}
-
-bool AudioRecorder::initialize() {
-    // Проверяем доступные API
-    RtAudio::Api api = RtAudio::MACOSX_CORE;
-
-    try {
-        m_audio = RtAudio(api);
-    } catch (RtAudioError& e) {
-        std::cerr << "RtAudio error: " << e.getMessage() << std::endl;
-        return false;
-    }
-
-    // Проверяем доступные устройства
-    if (m_audio.getDeviceCount() < 1) {
-        std::cerr << "No audio devices found!" << std::endl;
-        return false;
-    }
-
-    // Настройка параметров потока
-    RtAudio::StreamParameters parameters;
-    parameters.deviceId = m_audio.getDefaultInputDevice();
-    parameters.nChannels = 1;
-    parameters.firstChannel = 0;
-
-    RtAudio::StreamOptions options;
-    options.flags = RTAUDIO_SCHEDULE_REALTIME;
-    options.streamName = "AudioRecorder";
-
-    try {
-        m_audio.openStream(nullptr, &parameters, RTAUDIO_SINT16,
-                          m_sampleRate, &m_bufferFrames,
-                          &AudioRecorder::audioCallback, this, &options);
-    } catch (RtAudioError& e) {
-        std::cerr << "RtAudio error: " << e.getMessage() << std::endl;
-        return false;
-    }
-
-    return true;
-}
-
-bool AudioRecorder::startRecording() {
-    m_audioData.clear();
-    m_isRecording = false;
-
-    try {
-        m_audio.startStream();
-        m_isRecording = true;
-        std::cout << "Recording started..." << std::endl;
-        return true;
-    } catch (RtAudioError& e) {
-        std::cerr << "RtAudio error: " << e.getMessage() << std::endl;
-        return false;
-    }
-}
-
-bool AudioRecorder::stopRecording() {
-    m_isRecording = false;
-
-    try {
-        if (m_audio.isStreamRunning()) {
-            m_audio.stopStream();
-        }
-        std::cout << "Recording stopped. Recorded " << m_audioData.size() << " samples." << std::endl;
-        return true;
-    } catch (RtAudioError& e) {
-        std::cerr << "RtAudio error: " << e.getMessage() << std::endl;
-        return false;
-    }
-}
-
-bool AudioRecorder::saveToFile(const std::string& filename) {
-    return writeWavFile(filename);
-}
-
-int AudioRecorder::audioCallback(void* outputBuffer, void* inputBuffer,
-                               unsigned int nFrames, double streamTime,
-                               RtAudioStreamStatus status, void* userData) {
-    AudioRecorder* recorder = static_cast<AudioRecorder*>(userData);
+// callback для rtaudio
+int record(void *outputBuffer, void *inputBuffer, unsigned int nBufferFrames,
+           double streamTime, RtAudioStreamStatus status, void *userData)
+{
+    RecordData* data = static_cast<RecordData*>(userData);
 
     if (status) {
         std::cout << "Stream overflow detected!" << std::endl;
     }
 
-    if (recorder->m_isRecording && inputBuffer) {
-        int16_t* samples = static_cast<int16_t*>(inputBuffer);
-        recorder->m_audioData.insert(recorder->m_audioData.end(),
-                                   samples, samples + nFrames);
+    if (data->isRecording && inputBuffer) {
+        int16_t* inputSamples = static_cast<int16_t*>(inputBuffer);
+
+        data->audioData.insert(data->audioData.end(), inputSamples, inputSamples + nBufferFrames);
+
+        static int counter = 0;
+        if (++counter % (44100 / nBufferFrames) == 0) {
+            std::cout << "." << std::flush;
+        }
     }
 
     return 0;
 }
 
-bool AudioRecorder::writeWavFile(const std::string& filename) {
-    std::ofstream file(filename, std::ios::binary);
-    if (!file) {
-        std::cerr << "Cannot open file: " << filename << std::endl;
-        return false;
+AudioRecorder::AudioRecorder(std::shared_ptr<ISavingWorker> saving_worker)
+    : _is_recording(false)
+    , _buffer_frames(512)
+    , _saving_worker(saving_worker) {
+    bool streamOpened = false;
+
+    std::vector<unsigned int> deviceIds = _audio.getDeviceIds();
+    if (deviceIds.size() < 1) {
+        std::cout << "\nNo audio devices found!\n";
+        throw std::runtime_error("No audio devices found");
     }
 
-    // WAV header structure
-    struct WavHeader {
-        char riff[4] = {'R','I','F','F'};
-        uint32_t chunkSize;
-        char wave[4] = {'W','A','V','E'};
-        char fmt[4] = {'f','m','t',' '};
-        uint32_t subchunk1Size = 16;
-        uint16_t audioFormat = 1; // PCM
-        uint16_t numChannels = 1;
-        uint32_t sampleRate;
-        uint32_t byteRate;
-        uint16_t blockAlign;
-        uint16_t bitsPerSample = 16;
-        char data[4] = {'d','a','t','a'};
-        uint32_t subchunk2Size;
+    std::cout << "Available audio devices:" << std::endl;
+    for (unsigned int i = 0; i < deviceIds.size(); i++) {
+        RtAudio::DeviceInfo info = _audio.getDeviceInfo(deviceIds[i]);
+        std::cout << "Device " << i << " (ID: " << deviceIds[i] << "): " << info.name << std::endl;
+        std::cout << "  Input channels: " << info.inputChannels << std::endl;
+        if (info.inputChannels > 0) {
+            std::cout << "  Supported sample rates: ";
+            for (unsigned int sr : info.sampleRates) {
+                std::cout << sr << " ";
+            }
+            std::cout << std::endl;
+        }
+    }
+
+    unsigned int defaultDevice = _audio.getDefaultInputDevice();
+    RtAudio::DeviceInfo defaultInfo = _audio.getDeviceInfo(defaultDevice);
+
+    std::cout << "\nUsing default input device: " << defaultInfo.name << std::endl;
+    std::cout << "Input channels: " << defaultInfo.inputChannels << std::endl;
+
+    if (defaultInfo.inputChannels < 1) {
+        std::cout << "Default device has no input channels! Searching for alternative..." << std::endl;
+        for (unsigned int i = 0; i < deviceIds.size(); i++) {
+            RtAudio::DeviceInfo info = _audio.getDeviceInfo(deviceIds[i]);
+            if (info.inputChannels > 0) {
+                defaultDevice = deviceIds[i];
+                defaultInfo = info;
+                std::cout << "Using device: " << info.name << std::endl;
+                break;
+            }
+        }
+    }
+
+    if (defaultInfo.inputChannels < 1) {
+        std::cout << "No input devices found!" << std::endl;
+        throw std::runtime_error("No input devices found!");
+    }
+
+    std::cout << "Preferred sample rate: " << defaultInfo.preferredSampleRate << std::endl;
+
+    // самая популярная типа
+    unsigned int sampleRate = 44100;
+
+    // Проверяем поддерживается ли 44100
+    bool sampleRateSupported = false;
+    for (unsigned int sr : defaultInfo.sampleRates) {
+        if (sr == sampleRate) {
+            sampleRateSupported = true;
+            break;
+        }
+    }
+
+    // Если 44100 не поддерживается, используем то, что хочетустройство
+    if (!sampleRateSupported) {
+        sampleRate = defaultInfo.preferredSampleRate;
+        std::cout << "44100 not supported, using preferred rate: " << sampleRate << std::endl;
+    }
+
+    // Создаем структуру для передачи данных
+    _record_data.sampleRate = sampleRate;
+    _record_data.isRecording = false;
+
+    
+    _parameters.deviceId = defaultDevice;
+    _parameters.nChannels = 1;
+    _parameters.firstChannel = 0;
+
+    unsigned int bufferFrames = 256;
+
+    std::cout << "\nTrying to open stream with:" << std::endl;
+    std::cout << "  Sample rate: " << sampleRate << std::endl;
+    std::cout << "  Buffer frames: " << bufferFrames << std::endl;
+    std::cout << "  Format: SINT16" << std::endl;
+
+    // тут пипец
+    if (_audio.openStream(NULL, &_parameters, RTAUDIO_SINT16,
+                       sampleRate, &bufferFrames, &record, &_record_data)) {
+        std::cout << "Error opening stream: " << _audio.getErrorText() << std::endl;
+
+        // Пробуем другие форматы если SINT16 не работает
+        std::cout << "Trying FLOAT32 format..." << std::endl;
+        if (_audio.openStream(NULL, &_parameters, RTAUDIO_FLOAT32,
+                           sampleRate, &bufferFrames, &record, &_record_data)) {
+            std::cout << "Error with FLOAT32: " << _audio.getErrorText() << std::endl;
+
+            // Пробуем другую частоту дискретизации
+            std::cout << "Trying sample rate 48000..." << std::endl;
+            if (_audio.openStream(NULL, &_parameters, RTAUDIO_SINT16,
+                               48000, &bufferFrames, &record, &_record_data)) {
+                std::cout << "All attempts failed: " << _audio.getErrorText() << std::endl;
+                throw std::runtime_error("Error opening stream, all sample rates failed");
+            } else {
+                sampleRate = 48000;
+                _record_data.sampleRate = sampleRate;
+                std::cout << "Success with 48000 SINT16!" << std::endl;
+                streamOpened = true;
+            }
+        } else {
+            std::cout << "Success with FLOAT32!" << std::endl;
+            streamOpened = true;
+        }
+    } else {
+        std::cout << "Stream opened successfully with SINT16!" << std::endl;
+        streamOpened = true;
+    }
+
+    if (!streamOpened) {
+        std::cout << "Failed to open audio stream!" << std::endl;
+        throw std::runtime_error("Failed to open audio stream!");
+    }
+    _saving_worker->SetAudioData(_audio_data, sampleRate);
+}
+
+AudioRecorder::~AudioRecorder() {
+    if (_audio.isStreamOpen()) {
+        _audio.closeStream();
+    }
+}
+
+void AudioRecorder::Record(unsigned int time) {
+    _record_data.audioData.clear();
+    _record_data.isRecording = true;
+
+    std::cout << "\n=== Starting recording ===" << std::endl;
+    std::cout << "Recording";
+
+    if (_audio.startStream()) {
+        std::cout << "Error starting stream: " << _audio.getErrorText() << std::endl;
+        if (_audio.isStreamOpen()) {
+            _audio.closeStream();
+        }
+        return;
+    }
+
+    // Записываем time секунд
+    std::this_thread::sleep_for(std::chrono::seconds(time));
+
+    // Останавливаем запись
+    _record_data.isRecording = false;
+
+    // Останавливаем поток
+    if (_audio.isStreamRunning()) {
+        _audio.stopStream();
+    }
+
+    std::cout << std::endl;
+    std::cout << "Recording stopped." << std::endl;
+    std::cout << "Recorded " << _record_data.audioData.size() << " samples ("
+              << (double)_record_data.audioData.size() << " seconds)" << std::endl;
+
+    // Проверяем, есть ли данные
+    if (_record_data.audioData.empty()) {
+        std::cout << "WARNING: No audio data was recorded!" << std::endl;
+        std::cout << "Possible issues:" << std::endl;
+        std::cout << "1. Microphone permissions not granted" << std::endl;
+        std::cout << "2. Microphone is muted" << std::endl;
+        std::cout << "3. No audio input signal" << std::endl;
+    } else {
+        // Сохраняем в файл
+        std::string filename = "recorded_audio.wav";
+        std::cout << "Saving to file: " << filename << "..." << std::endl;
+
+
+    }
+    // Закрываем поток
+    if (_audio.isStreamOpen()) {
+        _audio.closeStream();
+    }
+}
+
+bool AudioRecorder::SaveData() {
+    if (_saving_worker->Save()) {
+        std::cout << "=== File saved successfully! ===" << std::endl;
+        return true;
+    } else {
+        std::cout << "=== Error saving file! ===" << std::endl;
+        return false;
     };
-
-    WavHeader header;
-    header.sampleRate = m_sampleRate;
-    header.byteRate = m_sampleRate * 1 * 16 / 8;
-    header.blockAlign = 1 * 16 / 8;
-    header.subchunk2Size = static_cast<uint32_t>(m_audioData.size()) * sizeof(int16_t);
-    header.chunkSize = 36 + header.subchunk2Size;
-
-    // Write header
-    file.write(reinterpret_cast<const char*>(&header), sizeof(header));
-
-    // Write audio data
-    file.write(reinterpret_cast<const char*>(m_audioData.data()),
-               m_audioData.size() * sizeof(int16_t));
-
-    if (!file) {
-        std::cerr << "Error writing to file: " << filename << std::endl;
-        return false;
-    }
-
-    std::cout << "Successfully saved " << m_audioData.size() << " samples to " << filename << std::endl;
-    return true;
 }

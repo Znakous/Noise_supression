@@ -27,15 +27,15 @@ if(NOT sndfile_POPULATED)
 endif()
 
 
-add_library(wav_worker WavWorker.cpp)
+add_library(saving_worker WavWorker.cpp WavWorker.hpp ISavingWorker.cpp ISavingWorker.hpp)
 
 
-target_include_directories(wav_worker
-        PRIVATE
+target_include_directories(saving_worker
+        PUBLIC
         ${sndfile_SOURCE_DIR}/include
 )
 
-target_link_libraries(wav_worker
+target_link_libraries(saving_worker
         PUBLIC
         sndfile
 )
