@@ -3,7 +3,7 @@
 
 #include <cstring>
 
-// callback для rtaudio
+// callback для rtaudio — only records raw data into RecordData
 int record(void *outputBuffer, void *inputBuffer, unsigned int nBufferFrames,
            double streamTime, RtAudioStreamStatus status, void *userData)
 {
@@ -16,7 +16,9 @@ int record(void *outputBuffer, void *inputBuffer, unsigned int nBufferFrames,
     if (data->isRecording && inputBuffer) {
         int16_t* inputSamples = static_cast<int16_t*>(inputBuffer);
 
-        data->audioData.insert(data->audioData.end(), inputSamples, inputSamples + nBufferFrames);
+        data->audioData.insert(data->audioData.end(),
+                               inputSamples,
+                               inputSamples + nBufferFrames);
 
         static int counter = 0;
         if (++counter % (44100 / nBufferFrames) == 0) {

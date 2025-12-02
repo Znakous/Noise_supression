@@ -22,6 +22,11 @@ public:
 
     void Record(unsigned int time);
     bool SaveData();
+
+    // Access recorded data for external processing (e.g., decorators)
+    const std::vector<int16_t>& GetAudioData() const { return _record_data.audioData; }
+    unsigned int GetSampleRate() const { return _record_data.sampleRate; }
+    
 private:
     RecordData _record_data;
     RtAudio _audio;
