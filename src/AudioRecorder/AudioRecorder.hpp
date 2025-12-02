@@ -10,7 +10,6 @@
 #include <thread>
 #include <cstdlib>
 #include <cstring>
-#include <atomic>
 
 #include "RecordData.hpp"
 #include "../SavingWorkers/ISavingWorker.hpp"
@@ -36,3 +35,5 @@ private:
     unsigned int _buffer_frames;
 
 };
+
+

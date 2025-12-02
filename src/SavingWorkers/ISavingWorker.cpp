@@ -10,3 +10,5 @@ void ISavingWorker::SetAudioData(const std::vector<int16_t>& audioData) {
 void ISavingWorker::SetSampleRate(uint32_t sampleRate) {
     _sampleRate = sampleRate;
 }
+
+

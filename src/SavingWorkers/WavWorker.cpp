@@ -28,10 +28,12 @@ bool WavWorker::Save() {
         std::cout << "Error: wrote " << framesWritten << " samples, expected " << _audioData.size() << std::endl;
         return false;
     }
-    for (int i = 0; i < _audioData.size(); i++) {
+    for (int i = 0; i < 1000 && i < static_cast<int>(_audioData.size()); i++) {
         std::cout << _audioData[i] << " ";
     }
 
     std::cout << "Successfully saved " << _audioData.size() << " samples to " << _filename << std::endl;
     return true;
 }
+
+

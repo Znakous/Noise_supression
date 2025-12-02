@@ -1,4 +1,5 @@
 include(FetchContent)
+
 # libsndfile
 FetchContent_Declare(
         sndfile
@@ -6,7 +7,7 @@ FetchContent_Declare(
         GIT_TAG 1.2.2
 )
 
-# Патчим libsndfile
+# Патчим libsndfile CMakeLists.txt
 macro(patch_sndfile_cmake)
     if(EXISTS ${sndfile_SOURCE_DIR}/CMakeLists.txt)
         file(READ ${sndfile_SOURCE_DIR}/CMakeLists.txt SNDFILE_CMAKE)
@@ -26,9 +27,7 @@ if(NOT sndfile_POPULATED)
     add_subdirectory(${sndfile_SOURCE_DIR} ${sndfile_BINARY_DIR} EXCLUDE_FROM_ALL)
 endif()
 
-
 add_library(saving_worker WavWorker.cpp WavWorker.hpp ISavingWorker.cpp ISavingWorker.hpp)
-
 
 target_include_directories(saving_worker
         PUBLIC
@@ -39,3 +38,5 @@ target_link_libraries(saving_worker
         PUBLIC
         sndfile
 )
+
+

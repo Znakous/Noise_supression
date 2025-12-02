@@ -21,3 +21,5 @@ protected:
     unsigned int _sampleRate;
     bool _setter_called;
 };
+
+

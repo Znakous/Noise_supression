@@ -82,3 +82,5 @@ target_link_libraries(audio_recorder PUBLIC
 set_target_properties(audio_recorder PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
+
+

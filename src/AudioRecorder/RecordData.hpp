@@ -1,4 +1,5 @@
 #pragma once
+
 #include <vector>
 #include <atomic>
 
@@ -7,3 +8,5 @@ struct RecordData {
     std::atomic<bool> isRecording;
     unsigned int sampleRate;
 };
+
+

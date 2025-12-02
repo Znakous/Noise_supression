@@ -1,34 +1,41 @@
-#include "../AudioRecorder/RecordData.hpp"
-#include "../SavingWorkers/WavWorker.hpp"
-#include <iostream>
-#include <cstdlib>
-#include <cstring>
-#include <vector>
-#include <atomic>
-#include <thread>
+#include "AudioRecorder/RecordData.hpp"
+#include "SavingWorkers/WavWorker.hpp"
+#include "AudioRecorder/AudioRecorder.hpp"
+#include "AudioRecorder/NoiseSuppressor.hpp"
 
-#include "../AudioRecorder/AudioRecorder.hpp"
+#include <iostream>
+#include <vector>
 
 int main()
 {
-    // Record without suppression
-    {
-        std::cout << "Recording without noise suppression (rec_raw.wav)..." << std::endl;
-        AudioRecorder rawRecorder(std::make_shared<WavWorker>("rec_raw.wav"));
-        rawRecorder.SetNoiseSuppressionEnabled(false);
-        rawRecorder.Record(5);
-        rawRecorder.SaveData();
-    }
+    // 1) Record once using the raw recorder (no suppression in the callback)
+    std::cout << "Recording raw audio (shared for both tests)..." << std::endl;
+    auto rawWorker = std::make_shared<WavWorker>("rec_raw.wav");
+    AudioRecorder recorder(rawWorker);
+    recorder.Record(5);
+    recorder.SaveData(); // saves raw recording
 
-    // Record with suppression
-    {
-        std::cout << "Recording with noise suppression (rec_denoised.wav)..." << std::endl;
-        AudioRecorder denoisedRecorder(std::make_shared<WavWorker>("rec_denoised.wav"));
-        denoisedRecorder.SetNoiseSuppressionEnabled(true);
-        denoisedRecorder.Record(5);
-        denoisedRecorder.SaveData();
-    }
+    // 2) Access the same recorded buffer and run noise suppression offline
+    const auto& rawData = recorder.GetAudioData();
+    const auto sampleRate = recorder.GetSampleRate();
 
-    std::cout << "Done. Compare rec_raw.wav and rec_denoised.wav." << std::endl;
+    NoiseSuppressor suppressor;
+    suppressor.SetEnabled(true);
+
+    std::cout << "Running noise suppression over recorded buffer..." << std::endl;
+    std::vector<int16_t> denoised = suppressor.ProcessSamples(
+        rawData.data(),
+        rawData.size(),
+        sampleRate,
+        sampleRate
+    );
+
+    // 3) Save the denoised version using a separate worker
+    auto denoisedWorker = std::make_shared<WavWorker>("rec_denoised.wav");
+    denoisedWorker->SetSampleRate(sampleRate);
+    denoisedWorker->SetAudioData(denoised);
+    denoisedWorker->Save();
+
+    std::cout << "Done. Compare rec_raw.wav and rec_denoised.wav (same recording, processed vs. unprocessed)." << std::endl;
     return 0;
 }

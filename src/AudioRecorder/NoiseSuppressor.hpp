@@ -52,3 +52,4 @@ private:
     unsigned int _currentOutputRate;
 };
 
+
